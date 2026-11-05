@@ -77,39 +77,53 @@ let editingApplicationId = null;
 
 const STORAGE_KEY = "jobTrackerApplications";
 
-// Save all applications in the browser
-function saveApplications() {
-    localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(applications)
+// Each account gets its own Local Storage namespace.
+// The email is normalized and encoded to create a stable key.
+function getUserStorageKey(baseKey) {
+    const currentUser = JSON.parse(
+        localStorage.getItem("jobTrackerCurrentUser") || "null"
     );
+
+    if (!currentUser || !currentUser.email) {
+        return null;
+    }
+
+    const userId = encodeURIComponent(currentUser.email.trim().toLowerCase());
+    return `${baseKey}_${userId}`;
 }
 
-// Load saved applications when the page opens
+// Save only the logged-in user's applications.
+function saveApplications() {
+    const userStorageKey = getUserStorageKey(STORAGE_KEY);
+    if (!userStorageKey) return;
 
+    localStorage.setItem(userStorageKey, JSON.stringify(applications));
+}
+
+// Load only the logged-in user's applications.
 function loadApplications() {
-    const savedApplications =
-        localStorage.getItem(STORAGE_KEY) ||
-        localStorage.getItem("applications");
+    const userStorageKey = getUserStorageKey(STORAGE_KEY);
+    applications = [];
+
+    if (!userStorageKey) return;
+
+    const savedApplications = localStorage.getItem(userStorageKey);
 
     if (savedApplications) {
         try {
             const parsedApplications = JSON.parse(savedApplications);
-
             if (Array.isArray(parsedApplications)) {
                 applications = parsedApplications;
             }
         } catch (error) {
-            console.error("Could not load saved applications:", error);
+            console.error("Could not load this user's applications:", error);
             applications = [];
         }
     }
 
-    // Give older applications an ID if they don't have one
+    // Give older records in this user's scoped list an ID if they don't have one.
     applications.forEach((application) => {
-        if (!application.id) {
-            application.id = crypto.randomUUID();
-        }
+        if (!application.id) application.id = crypto.randomUUID();
     });
 
     saveApplications();
@@ -861,6 +875,14 @@ loginForm.addEventListener("submit", function(event) {
         JSON.stringify(currentUser)
     );
 
+    // Load this account's private job-tracker records after authentication.
+    loadApplications();
+    loadInterviews();
+    displayApplications();
+    updateStatistics();
+    displayInterviews();
+    displayUpcomingInterviews();
+
     // Hide the login screen to reveal the dashboard
     loginScreen.style.display = "none";
     updateDashboardProfile(currentUser);
@@ -906,8 +928,16 @@ function updateDashboardProfile(user) {
 const logoutBtn = document.getElementById("logoutBtn");
 
 logoutBtn.addEventListener("click", function() {
-    // Remove the saved login session
+    // Remove the saved login session.
     localStorage.removeItem(CURRENT_USER_KEY);
+
+    // Clear in-memory data so it cannot remain visible after logout.
+    applications = [];
+    interviews = [];
+    displayApplications();
+    updateStatistics();
+    displayInterviews();
+    displayUpcomingInterviews();
 
     // Show the login screen again
     loginScreen.style.display = "flex";
@@ -931,6 +961,11 @@ const savedSession = JSON.parse(
 );
 
 if (savedSession) {
+    // Restore this user's records when an existing session is resumed.
+    loadApplications();
+    displayApplications();
+    updateStatistics();
+
     loginScreen.style.display = "none";
     updateDashboardProfile(savedSession);
 }
@@ -1002,17 +1037,38 @@ const allInterviews = document.getElementById("allInterviews");
 
 const INTERVIEWS_KEY = "jobTrackerInterviews";
 
-// Load saved interviews
-let interviews = JSON.parse(
-    localStorage.getItem(INTERVIEWS_KEY) || "[]"
-);
+// Interview records are isolated using the same account namespace as applications.
+let interviews = [];
 
-// Save interviews to localStorage
+function loadInterviews() {
+    const userStorageKey = getUserStorageKey(INTERVIEWS_KEY);
+    interviews = [];
+
+    if (!userStorageKey) return;
+
+    try {
+        const savedInterviews = JSON.parse(
+            localStorage.getItem(userStorageKey) || "[]"
+        );
+        interviews = Array.isArray(savedInterviews) ? savedInterviews : [];
+    } catch (error) {
+        console.error("Could not load this user's interviews:", error);
+        interviews = [];
+    }
+
+    interviews.forEach((interview) => {
+        if (!interview.id) interview.id = crypto.randomUUID();
+    });
+
+    saveInterviews();
+}
+
+// Save only the logged-in user's interviews.
 function saveInterviews() {
-    localStorage.setItem(
-        INTERVIEWS_KEY,
-        JSON.stringify(interviews)
-    );
+    const userStorageKey = getUserStorageKey(INTERVIEWS_KEY);
+    if (!userStorageKey) return;
+
+    localStorage.setItem(userStorageKey, JSON.stringify(interviews));
 }
 
 
@@ -1345,6 +1401,7 @@ interviewForm.addEventListener("submit", function(event) {
 
 
 // Display interviews when the page loads
+loadInterviews();
 displayInterviews();
 displayUpcomingInterviews();
 
@@ -1418,3 +1475,44 @@ function deleteInterview(interviewId) {
     displayInterviews();
     displayUpcomingInterviews();
 }
+
+/* ================================
+   DASHBOARD QUICK ACTIONS
+================================ */
+
+// Quick Action buttons
+const quickAddApplicationBtn = document.getElementById(
+    "quickAddApplicationBtn"
+);
+
+const quickScheduleInterviewBtn = document.getElementById(
+    "quickScheduleInterviewBtn"
+);
+
+
+// Open Add Application modal
+quickAddApplicationBtn.addEventListener("click", function() {
+
+    // Open the existing application modal
+    applicationModal.style.display = "flex";
+
+});
+
+
+// Navigate to Interviews and open the scheduling form
+quickScheduleInterviewBtn.addEventListener("click", function() {
+
+    // Find the Interviews navigation link
+    const interviewsNavLink = document.querySelector(
+        '.nav-link[data-section="interviewsSection"]'
+    );
+
+    // Navigate to the Interviews section
+    if (interviewsNavLink) {
+        interviewsNavLink.click();
+    }
+
+    // Open the interview scheduling form
+    showInterviewFormBtn.click();
+
+});
